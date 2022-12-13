@@ -51,6 +51,8 @@ class TushareDataSource(BaseDataSource):
         match dataset:
             case "history" | "ohlcv":
                 return self.fetch_historical_data(**kwargs)
+            case "adjust_factor":
+                return self.fetch_adjust_factor(**kwargs)
             case _:
                 raise ValueError(f"unsupported dataset: {dataset}")
 
@@ -62,7 +64,7 @@ class TushareDataSource(BaseDataSource):
         end_date: pd.Timestamp,
         trade_date: Optional[pd.Timestamp] = None,
         fields: Optional[List[str]] = None,
-    ):
+    ) -> pd.DataFrame:
         data: pd.DataFrame = self._api.daily(
             ts_code=self.convert_symbol(symbol),
             start_date=self.convert_date(start_date),
@@ -94,7 +96,7 @@ class TushareDataSource(BaseDataSource):
         trade_date: Optional[pd.Timestamp] = None,
         frequency: Optional[str] = None,
         fields: Optional[List[str]] = None,
-    ):
+    ) -> pd.DataFrame:
         data: pd.DataFrame = tushare.pro_bar(
             api=self._api,
             ts_code=self.convert_symbol(symbol),
@@ -156,3 +158,29 @@ class TushareDataSource(BaseDataSource):
                 )
             case _:
                 raise ValueError(f"Unsupported frequency: {frequency}")
+
+    @retry(tries=5, delay=10)
+    def fetch_adjust_factor(
+        self,
+        symbol: str,
+        start_date: pd.Timestamp,
+        end_date: pd.Timestamp,
+        trade_date: Optional[pd.Timestamp] = None,
+        frequency: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        data: pd.DataFrame = self._api.adj_factor(
+            ts_code=self.convert_symbol(symbol),
+            start_date=self.convert_date(start_date),
+            end_date=self.convert_date(end_date),
+        )
+        data.sort_values(by="trade_date", inplace=True)
+        data.reset_index(drop=True, inplace=True)
+
+        return pd.DataFrame(
+            {
+                "symbol": data["ts_code"].str.slice(0, 6),
+                "date": pd.to_datetime(data["trade_date"], format="%Y%m%d"),
+                "adj_factor": data["adj_factor"].astype(np.float64),
+            }
+        )
